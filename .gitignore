@@ -1,0 +1,30 @@
+# 构建产物
+build/
+app/build/
+.gradle/
+.kotlin/
+
+# 本机配置（含本机 SDK 路径，不入库）
+local.properties
+
+# IDE
+.idea/
+*.iml
+
+# Android 构建
+captures/
+.externalNativeBuild/
+.cxx/
+
+# 杂项
+*.log
+.DS_Store
+
+# 签名钥匙与密码（绝对不能进仓库！丢了将无法给已装用户升级）
+release.keystore
+*.jks
+keystore.properties
+
+# 本地文档，不入库
+AGENTS.md
+CODE_REVIEW.md
