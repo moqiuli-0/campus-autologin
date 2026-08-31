@@ -96,7 +96,7 @@ object SettingsStore {
             fallbackWhenSsidUnknown = st.getBoolean(K_FALLBACK, true),
             monitoring = st.getBoolean(K_MONITOR, false),
             verboseLog = st.getBoolean(K_VERBOSE, false),
-            themeColor = st.getInt(K_THEME, 0xFF6750A4.toInt()),
+            themeColor = st.getInt(K_THEME, 0xFF000000.toInt()),
             checkIntervalSec = st.getInt(K_INTERVAL, 300),
             batteryCheckOverride = st.getBoolean(K_BATTERY_OVERRIDE, false),
             ssidRules = (st.getString(K_SSID_RULES, null) ?: "").split(SEP).filter { it.isNotBlank() },

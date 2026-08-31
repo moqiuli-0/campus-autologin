@@ -348,11 +348,15 @@ class PortalMonitorService : Service() {
         // 定位失败/超时按原逻辑放行（可用性优先）；坐标仅本地比对，不上传。
         if (settings.locationGuard && settings.campusLocationSet) {
             val loc = getLocationOnce()
+            val campusLat = settings.campusLat
+            val campusLng = settings.campusLng
             if (loc == null) {
                 AppLog.info("位置围栏：定位失败，按原逻辑放行")
+            } else if (campusLat == null || campusLng == null) {
+                AppLog.info("位置围栏：圆心缺失，按原逻辑放行")
             } else {
                 val (lat, lng) = loc
-                val dist = distanceMeters(lat, lng, settings.campusLat!!, settings.campusLng!!)
+                val dist = distanceMeters(lat, lng, campusLat, campusLng)
                 AppLog.info("位置围栏：距校园圆心 ${dist.roundToInt()} 米")
                 if (dist > CAMPUS_RADIUS_M) {
                     val msg = "当前位置距学校约 ${if (dist > 1000) "%.1f".format(dist / 1000) + " 公里" else "${dist.roundToInt()} 米"}，不在校园范围内，未自动登录（可在设置关闭位置围栏）"
@@ -375,7 +379,7 @@ class PortalMonitorService : Service() {
             if (outcome.success) break
             if (attempt == 1) delay(5000)
         }
-        val final = outcome!!
+        val final = outcome ?: PortalLoginManager.LoginOutcome(false, "登录流程异常中止")
         if (final.success) {
             AppStatus.update(this, AppStatus.SUCCESS, final.message, ssid)
         } else {

@@ -162,7 +162,8 @@ private fun exitLeftCampusModeIfNeeded(context: Context) {
 // ============================ 根导航 ============================
 
 private val THEME_PRESETS = listOf(
-    Color(0xFF6750A4), // 经典紫（默认）
+    Color(0xFF000000), // 纯黑（默认）
+    Color(0xFF6750A4), // 经典紫
     Color(0xFF1565C0), // 深海蓝
     Color(0xFF0288D1), // 天青蓝
     Color(0xFF00897B), // 青碧绿
@@ -186,7 +187,10 @@ private fun themeScheme(base: Color): ColorScheme {
         onSecondary = onBase,
         secondaryContainer = container,
         onSecondaryContainer = onContainer,
-        tertiary = base
+        tertiary = base,
+        // 背景固定纯白，不随主题色变化（用户不可自定义）
+        background = Color.White,
+        surface = Color.White
     )
 }
 
@@ -252,7 +256,6 @@ fun AppRoot() {
     var onboardingDone by remember { mutableStateOf(SettingsStore.isOnboardingDone(context)) }
     var showHistory by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
-    var showAway by remember { mutableStateOf(false) }
     var showPrivacy by remember { mutableStateOf(false) }
     var permTick by remember { mutableIntStateOf(0) }
 
@@ -420,10 +423,18 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
             toast(context, "账号和密码不能为空")
             return
         }
+        val firstTime = !SettingsStore.load(context).configured
         SettingsStore.saveCredentials(context, userId, passwd)
         SettingsStore.saveOptions(context, portalHost, settings.fallbackWhenSsidUnknown)
+        if (firstTime && !SettingsStore.load(context).monitoring) {
+            // 首次填写账号密码后自动打开后台监控
+            SettingsStore.setMonitoring(context, true)
+            PortalMonitorService.start(context)
+            toast(context, "已保存，后台监控已自动开启")
+        } else {
+            toast(context, "已保存")
+        }
         refreshSettings()
-        toast(context, "已保存")
     }
 
     fun manualCheck() {
@@ -436,164 +447,170 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 标题 + 监控开关
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // 上半部分：内容区（可滚动）；下面 ③④⑤ 操作按钮固定在页面底端
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // 标题 + 监控开关
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "校园网自动登录",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                Text("后台监控", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.width(8.dp))
+                Switch(checked = monitoring, onCheckedChange = { toggleMonitoring(it) })
+            }
             Text(
-                "校园网自动登录",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f)
+                "连接到你配置的校园网 WiFi 时，自动检测是否被跳转到认证页并代你登录。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Text("后台监控", style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.width(8.dp))
-            Switch(checked = monitoring, onCheckedChange = { toggleMonitoring(it) })
-        }
-        Text(
-            "连接到你配置的校园网 WiFi 时，自动检测是否被跳转到认证页并代你登录。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
 
-        // ① 登录账号卡（默认折叠，含认证页地址）
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { credExpanded = !credExpanded }
-                ) {
-                    Text("登录账号", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    Text(
-                        if (settings.configured) "已配置" else "未配置",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (settings.configured) Color(0xFF2E7D32) else Color(0xFFC62828)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (credExpanded) "▾" else "▸", fontWeight = FontWeight.Bold)
-                }
-                if (credExpanded) {
-                    Spacer(Modifier.height(10.dp))
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedTextField(
-                            value = userId,
-                            onValueChange = { userId = it },
-                            label = { Text("账号（学号/工号）") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+            // ① 登录账号卡（默认折叠，含认证页地址）
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { credExpanded = !credExpanded }
+                    ) {
+                        Text("登录账号", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        Text(
+                            if (settings.configured) "已配置" else "未配置",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (settings.configured) Color(0xFF2E7D32) else Color(0xFFC62828)
                         )
-                        OutlinedTextField(
-                            value = passwd,
-                            onValueChange = { passwd = it },
-                            label = { Text("密码") },
-                            singleLine = true,
-                            visualTransformation = if (showPass) VisualTransformation.None else PasswordVisualTransformation(),
-                            trailingIcon = {
-                                TextButton(onClick = { showPass = !showPass }) {
-                                    Text(if (showPass) "隐藏" else "显示")
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = portalHost,
-                            onValueChange = { portalHost = it },
-                            label = { Text("认证页地址") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Button(onClick = { saveAll() }, modifier = Modifier.fillMaxWidth()) {
-                            Text("保存设置")
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (credExpanded) "▾" else "▸", fontWeight = FontWeight.Bold)
+                    }
+                    if (credExpanded) {
+                        Spacer(Modifier.height(10.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = userId,
+                                onValueChange = { userId = it },
+                                label = { Text("账号（学号/工号）") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = passwd,
+                                onValueChange = { passwd = it },
+                                label = { Text("密码") },
+                                singleLine = true,
+                                visualTransformation = if (showPass) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    TextButton(onClick = { showPass = !showPass }) {
+                                        Text(if (showPass) "隐藏" else "显示")
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            OutlinedTextField(
+                                value = portalHost,
+                                onValueChange = { portalHost = it },
+                                label = { Text("认证页地址") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Button(onClick = { saveAll() }, modifier = Modifier.fillMaxWidth()) {
+                                Text("保存设置")
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // ② 当前校园网状态
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                val (label, color) = stateInfo(status.state)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Spacer(
-                        Modifier
-                            .size(10.dp)
-                            .background(color, CircleShape)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(label, fontWeight = FontWeight.Bold)
-                    if (status.busy) {
+            // ② 当前校园网状态
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val (label, color) = stateInfo(status.state)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Spacer(
+                            Modifier
+                                .size(10.dp)
+                                .background(color, CircleShape)
+                        )
                         Spacer(Modifier.width(8.dp))
-                        Text("…", color = color)
+                        Text(label, fontWeight = FontWeight.Bold)
+                        if (status.busy) {
+                            Spacer(Modifier.width(8.dp))
+                            Text("…", color = color)
+                        }
+                    }
+                    if (status.detail.isNotBlank()) {
+                        Text(status.detail, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Text(
+                        "当前 WiFi：${status.ssid ?: "未知"}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        "更新时间：" + if (status.time == 0L) "—"
+                        else SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault()).format(Date(status.time)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(
+                        onClick = onOpenHistory,
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text("查看登录历史 →")
+                    }
+                    // 非校园网认证页：提供手动打开按钮（B 方案，不发送任何账号信息）
+                    if (status.state == AppStatus.FAILED &&
+                        status.detail.contains("不是校园网") &&
+                        !status.portalUrl.isNullOrBlank()
+                    ) {
+                        OutlinedButton(
+                            onClick = {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(status.portalUrl))
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("打开认证页（浏览器）") }
+                        Text(
+                            "按钮只是用浏览器打开这个页面，不会发送校园网账号密码。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    // 关键词规则没覆盖当前 WiFi：允许用户手动指认"这就是校园网"，
+                    // 写入 WiFi 记忆库后立即重新检测登录
+                    val noMatchSsid = status.ssid
+                    if (status.state == AppStatus.WIFI_NO_MATCH && !noMatchSsid.isNullOrBlank()) {
+                        OutlinedButton(
+                            onClick = {
+                                SsidMemoryStore.remember(context, noMatchSsid, true)
+                                toast(context, "已记住「$noMatchSsid」为校园网，正在重新检测")
+                                PortalMonitorService.checkNow(context)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("这是校园网，记住它") }
+                        Text(
+                            "点「记住」后，这个 WiFi 会被写进校园网判断记忆（与自动学习共用），之后即使关键词规则没覆盖也能自动登录。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
-                if (status.detail.isNotBlank()) {
-                    Text(status.detail, style = MaterialTheme.typography.bodyMedium)
-                }
-                Text(
-                    "当前 WiFi：${status.ssid ?: "未知"}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    "更新时间：" + if (status.time == 0L) "—"
-                    else SimpleDateFormat("MM-dd HH:mm:ss", Locale.getDefault()).format(Date(status.time)),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                TextButton(
-                    onClick = onOpenHistory,
-                    contentPadding = PaddingValues(0.dp)
-                ) {
-                    Text("查看登录历史 →")
-                }
-                // 非校园网认证页：提供手动打开按钮（B 方案，不发送任何账号信息）
-                if (status.state == AppStatus.FAILED &&
-                    status.detail.contains("不是校园网") &&
-                    !status.portalUrl.isNullOrBlank()
-                ) {
-                    OutlinedButton(
-                        onClick = {
-                            runCatching {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(status.portalUrl))
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                )
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("打开认证页（浏览器）") }
-                    Text(
-                        "按钮只是用浏览器打开这个页面，不会发送校园网账号密码。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                // 关键词规则没覆盖当前 WiFi：允许用户手动指认"这就是校园网"，
-                // 写入 WiFi 记忆库后立即重新检测登录
-                val noMatchSsid = status.ssid
-                if (status.state == AppStatus.WIFI_NO_MATCH && !noMatchSsid.isNullOrBlank()) {
-                    OutlinedButton(
-                        onClick = {
-                            SsidMemoryStore.remember(context, noMatchSsid, true)
-                            toast(context, "已记住「$noMatchSsid」为校园网，正在重新检测")
-                            PortalMonitorService.checkNow(context)
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("这是校园网，记住它") }
-                    Text(
-                        "点「记住」后，这个 WiFi 会被写进校园网判断记忆（与自动学习共用），之后即使关键词规则没覆盖也能自动登录。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
+
         }
 
         // ③ 立即检测
@@ -610,7 +627,7 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
         OutlinedButton(
             onClick = { showAway = true },
             modifier = Modifier.fillMaxWidth()
-        ) { Text("离校模式（不在学校时）") }
+        ) { Text("离校模式") }
 
         if (showAway) {
             AlertDialog(
@@ -647,6 +664,30 @@ private fun CategoryLabel(text: String) {
     )
 }
 
+/** 设置页的子页面分类。 */
+private enum class SettingsSub { Detection, RunEnv, Theme, Away, About }
+
+@Composable
+private fun SettingsEntry(title: String, desc: String, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    desc,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text("›", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
 @Composable
 private fun SettingsPage(
     onBack: () -> Unit,
@@ -672,6 +713,7 @@ private fun SettingsPage(
     val scope = rememberCoroutineScope()
     var locating by remember { mutableStateOf(false) }
     var showAwayConfirm by remember { mutableStateOf(false) }
+    var sub by remember { mutableStateOf<SettingsSub?>(null) }
 
     fun refreshSettings() {
         settings = SettingsStore.load(context)
@@ -710,6 +752,8 @@ private fun SettingsPage(
         }
     }
 
+    BackHandler(enabled = sub != null) { sub = null }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -718,33 +762,34 @@ private fun SettingsPage(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) { Text("← 返回") }
-            Text("设置", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        }
-
-        // 有任何运行条件没满足时，"运行环境"提到最上面提醒用户；全满足则排最后
-        val batteryEffectiveOk = batteryIgnored || batteryOverride
-        val runEnvOk = locGranted && locationOn && notifGranted && batteryEffectiveOk
-        val runEnvCard: @Composable () -> Unit = {
-            RunEnvCard(
-                locGranted = locGranted,
-                locationOn = locationOn,
-                notifGranted = notifGranted,
-                batteryIgnored = batteryIgnored,
-                batteryOverride = batteryOverride,
-                onBatteryOverrideChange = onBatteryOverrideChange,
-                onRequestLocation = onRequestLocation,
-                onRequestNotif = onRequestNotif
+            TextButton(
+                onClick = { if (sub == null) onBack() else sub = null },
+                contentPadding = PaddingValues(0.dp)
+            ) { Text("← 返回") }
+            Text(
+                when (sub) {
+                    null -> "设置"
+                    SettingsSub.Detection -> "检测"
+                    SettingsSub.RunEnv -> "运行环境"
+                    SettingsSub.Theme -> "主题外观"
+                    SettingsSub.Away -> "离校模式"
+                    SettingsSub.About -> "日志与关于"
+                },
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
             )
         }
 
-        if (!runEnvOk) {
-            CategoryLabel("运行环境")
-            runEnvCard()
+        if (sub == null) {
+            SettingsEntry("检测", "检测间隔、SSID 关键词规则、位置校验、电脑版登录") { sub = SettingsSub.Detection }
+            SettingsEntry("运行环境", "权限与后台保活、系统认证跳转") { sub = SettingsSub.RunEnv }
+            SettingsEntry("主题外观", "主题颜色自定义") { sub = SettingsSub.Theme }
+            SettingsEntry("离校模式", "离开学校时一键停止后台监控与开机自启") { sub = SettingsSub.Away }
+            SettingsEntry("日志与关于", "日志导出、隐私声明、联系作者") { sub = SettingsSub.About }
         }
 
-        // ---- 检测 ----
-        CategoryLabel("检测")
+        if (sub == SettingsSub.Detection)
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
@@ -874,7 +919,7 @@ private fun SettingsPage(
                                     }
                                 },
                                 modifier = Modifier.fillMaxWidth()
-                            ) { Text("我在学校，点我记住这个位置") }
+                            ) { Text("记住位置") }
                         }
                     }
                     Text(
@@ -895,7 +940,7 @@ private fun SettingsPage(
                     })
                 }
                 Text(
-                    "校园网按登录页面版本区分设备：手机版/电脑版各占一个名额。开启后本应用会模拟电脑浏览器完成登录，两台安卓设备可分别占用两种名额同时在线。是否有效取决于学校认证系统，建议实测。",
+                    "校园网按登录页面版本区分设备：手机版/电脑版各占一个名额。开启后本应用会模拟电脑浏览器完成登录，两台安卓设备可分别占用两种名额同时在线。是否有效取决于学校认证系统。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -921,16 +966,25 @@ private fun SettingsPage(
             }
         }
 
-        // ---- 系统认证跳转 ----
-        CategoryLabel("系统认证跳转")
-        PortalJumpCard()
+        if (sub == SettingsSub.RunEnv) {
+            RunEnvCard(
+                locGranted = locGranted,
+                locationOn = locationOn,
+                notifGranted = notifGranted,
+                batteryIgnored = batteryIgnored,
+                batteryOverride = batteryOverride,
+                onBatteryOverrideChange = onBatteryOverrideChange,
+                onRequestLocation = onRequestLocation,
+                onRequestNotif = onRequestNotif
+            )
+            PortalJumpCard()
+        }
 
-        // ---- 外观 ----
-        CategoryLabel("外观")
-        ThemeCard(themeColor = themeColor, onThemeChange = onThemeChange)
+        if (sub == SettingsSub.Theme) {
+            ThemeCard(themeColor = themeColor, onThemeChange = onThemeChange)
+        }
 
-        // ---- 日志 ----
-        CategoryLabel("日志")
+        if (sub == SettingsSub.About)
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -958,8 +1012,7 @@ private fun SettingsPage(
             }
         }
 
-        // ---- 隐私 ----
-        CategoryLabel("隐私")
+        if (sub == SettingsSub.About)
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
                 TextButton(onClick = onShowPrivacy, contentPadding = PaddingValues(0.dp)) {
@@ -968,23 +1021,14 @@ private fun SettingsPage(
             }
         }
 
-        // ---- 联系作者 ----
-        CategoryLabel("联系作者")
-        ContactCard()
+        if (sub == SettingsSub.About)
+            ContactCard()
 
-        // ---- 运行环境 ----
-        if (runEnvOk) {
-            CategoryLabel("运行环境")
-            runEnvCard()
-        }
-
-
-        // ---- 离校模式 ----
-        CategoryLabel("离校模式（不在学校时）")
+        if (sub == SettingsSub.Away)
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "放假离校时开启：立即停止后台监控服务、禁用开机自启，并关闭本应用；下次手动打开本应用时会自动退出离校模式并恢复监控。",
+                    "立即停止后台监控服务、禁用开机自启，并关闭本应用；下次手动打开本应用时会自动退出离校模式并恢复监控。",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 OutlinedButton(
@@ -1509,7 +1553,7 @@ private fun PortalJumpCard() {
                     }
                 }) { Text("一键禁用") }
                 Text(
-                    "说明：「一键禁用」需要用电脑授权一次（这种授权方式的学名叫 adb）。怕麻烦可以无视它——不开启也没关系，系统弹出认证页时手动点掉就行，本应用照样会在后台完成登录。",
+                    "说明：「一键禁用」需要用电脑授权一次（ADB）。怕麻烦可以无视它——不开启也没关系，系统弹出认证页时手动点掉就行，本应用照样会在后台完成登录。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1669,7 +1713,7 @@ private fun RunEnvCard(
     val context = LocalContext.current
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            CheckRow("位置权限（读取 WiFi 名称）", locGranted, onRequestLocation)
+            CheckRow("位置权限", locGranted, onRequestLocation)
             CheckRow("系统定位开关", locationOn) {
                 runCatching {
                     context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
