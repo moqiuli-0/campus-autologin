@@ -190,7 +190,10 @@ private fun themeScheme(base: Color): ColorScheme {
         tertiary = base,
         // 背景固定纯白，不随主题色变化（用户不可自定义）
         background = Color.White,
-        surface = Color.White
+        surface = Color.White,
+        // 卡片与弹窗底色统一为浅浅灰
+        surfaceContainerHigh = Color(0xFFF2F2F2),
+        surfaceContainerHighest = Color(0xFFF2F2F2)
     )
 }
 
@@ -381,6 +384,22 @@ fun AppRoot() {
 
 // ============================ 主页 ============================
 
+/** 首页操作按钮组（间距紧凑）。账号卡折叠时固定页面底端，展开时跟随内容排布。 */
+@Composable
+private fun HomeActionButtons(onCheck: () -> Unit, onSettings: () -> Unit, onAway: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Button(onClick = onCheck, modifier = Modifier.fillMaxWidth()) {
+            Text("立即检测并登录")
+        }
+        OutlinedButton(onClick = onSettings, modifier = Modifier.fillMaxWidth()) {
+            Text("设置")
+        }
+        OutlinedButton(onClick = onAway, modifier = Modifier.fillMaxWidth()) {
+            Text("离校模式")
+        }
+    }
+}
+
 @Composable
 fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
     val context = LocalContext.current
@@ -450,11 +469,11 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 上半部分：内容区（可滚动）；下面 ③④⑤ 操作按钮固定在页面底端
+        // 上半部分：内容区（可滚动）。账号卡折叠时占满剩余高度，操作按钮固定在页面底端；
+        // 账号卡展开时改为跟随内容，按钮排在内容末尾、不固定底端
+        val scrollModifier = if (credExpanded) Modifier else Modifier.weight(1f)
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .verticalScroll(rememberScrollState()),
+            modifier = scrollModifier.verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // 标题 + 监控开关
@@ -611,23 +630,24 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
                 }
             }
 
+            // ③④⑤ 操作按钮：账号卡展开时跟随内容排在末尾（不固定底端）
+            if (credExpanded) {
+                HomeActionButtons(
+                    onCheck = { manualCheck() },
+                    onSettings = onOpenSettings,
+                    onAway = { showAway = true }
+                )
+            }
         }
 
-        // ③ 立即检测
-        Button(onClick = { manualCheck() }, modifier = Modifier.fillMaxWidth()) {
-            Text("立即检测并登录")
+        // 账号卡折叠时操作按钮固定在页面底端
+        if (!credExpanded) {
+            HomeActionButtons(
+                onCheck = { manualCheck() },
+                onSettings = onOpenSettings,
+                onAway = { showAway = true }
+            )
         }
-
-        // ④ 设置入口
-        OutlinedButton(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
-            Text("设置")
-        }
-
-        // ⑤ 离校模式快捷入口（放假/离校时一键停掉后台）
-        OutlinedButton(
-            onClick = { showAway = true },
-            modifier = Modifier.fillMaxWidth()
-        ) { Text("离校模式") }
 
         if (showAway) {
             AlertDialog(
