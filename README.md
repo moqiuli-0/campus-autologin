@@ -41,8 +41,8 @@
 | 项目 | 值 |
 |---|---|
 | 包名 | `com.campusnet.autologin` |
-| 当前版本 | 1.15（versionCode 15） |
-| 安装包 SHA-256 | `2c723af63b752ccf39ab01a4ccf1d46eef918ebad54ed0149132991974171b8e` |
+| 当前版本 | 1.16（versionCode 16） |
+| 安装包 SHA-256 | `13046c830f1e5ad007d91d0053d503470cb10fd835b7b01284aabe34bba7713c` |
 | 签名证书 SHA-256 | `C6:8D:64:3B:2B:D6:24:0D:C5:EB:59:B9:03:06:51:EE:4D:67:D5:AD:69:38:1E:7B:03:69:03:B0:8A:A7:C9:DF` |
 
 校验方法（Windows 自带工具）：`certutil -hashfile 下载的文件.apk SHA256`，输出与上表一致即为原包。

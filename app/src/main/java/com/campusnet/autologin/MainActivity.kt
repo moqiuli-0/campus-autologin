@@ -192,7 +192,7 @@ private fun themeScheme(base: Color): ColorScheme {
 
 // ============================ 联系作者 ============================
 
-private const val REPO_URL = "https://github.com/moqiuli-0/CampusNetAutoLogin"
+private const val REPO_URL = "https://github.com/moqiuli-0/campus-autologin"
 private const val CONTACT_EMAIL = "dachaiquan@foxmail.com"
 
 private fun copyText(context: Context, label: String, text: String) {
@@ -575,6 +575,24 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                // 关键词规则没覆盖当前 WiFi：允许用户手动指认"这就是校园网"，
+                // 写入 WiFi 记忆库后立即重新检测登录
+                val noMatchSsid = status.ssid
+                if (status.state == AppStatus.WIFI_NO_MATCH && !noMatchSsid.isNullOrBlank()) {
+                    OutlinedButton(
+                        onClick = {
+                            SsidMemoryStore.remember(context, noMatchSsid, true)
+                            toast(context, "已记住「$noMatchSsid」为校园网，正在重新检测")
+                            PortalMonitorService.checkNow(context)
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("这是校园网，记住它") }
+                    Text(
+                        "点「记住」后，这个 WiFi 会被写进校园网判断记忆（与自动学习共用），之后即使关键词规则没覆盖也能自动登录。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
 
@@ -882,7 +900,7 @@ private fun SettingsPage(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    "WiFi 名包含任一关键词即自动处理；不同 WiFi 的认证相互独立，切换后会各自重新认证。其他 WiFi 第一次遇到时会看一眼认证页内容自动记忆判断，之后重连直接查记忆。",
+                    "WiFi 名包含任一关键词即自动处理；不同 WiFi 的认证相互独立，切换后会各自重新认证。其他 WiFi 第一次遇到时会看一眼认证页内容自动记忆判断，之后重连直接查记忆。关键词没覆盖的 WiFi，也可以在主页状态卡点「这是校园网，记住它」手动指认。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1196,7 +1214,7 @@ private fun PrivacyContent() {
         PrivacyItem(
             "两个需要说明的能力",
             "1. 「一键禁用系统跳转」需要用电脑授予一次 WRITE_SECURE_SETTINGS 系统权限，仅在点击该按钮时使用，可随时在系统设置收回；\n" +
-                "2. 「联系作者」在你点击时用剪贴板复制 QQ 号或跳转 QQ。"
+                "2. 「联系作者」在你点击时调起系统邮件应用发送反馈，或把邮箱地址复制到剪贴板。"
         )
     }
 }
@@ -1443,7 +1461,7 @@ private fun ContactCard() {
                     }
                 },
                 contentPadding = PaddingValues(0.dp)
-            ) { Text("项目仓库：github.com/moqiuli-0/CampusNetAutoLogin") }
+            ) { Text("项目仓库：github.com/moqiuli-0/campus-autologin") }
         }
     }
 }
@@ -1782,7 +1800,7 @@ private fun stateInfo(state: String): Pair<String, Color> = when (state) {
     AppStatus.CHECKING, AppStatus.PORTAL, AppStatus.LOGGING_IN -> "处理中" to Color(0xFFEF6C00)
     AppStatus.FAILED -> "自动登录失败" to Color(0xFFC62828)
     AppStatus.NO_CRED -> "未配置账号" to Color(0xFFC62828)
-    AppStatus.WIFI_NO_MATCH -> "当前 WiFi 非校园网" to Color(0xFF546E7A)
+    AppStatus.WIFI_NO_MATCH -> "当前 WiFi 未识别为校园网" to Color(0xFF546E7A)
     AppStatus.UNKNOWN -> "网络状态未知" to Color(0xFFEF6C00)
     else -> "待命" to Color(0xFF546E7A)
 }

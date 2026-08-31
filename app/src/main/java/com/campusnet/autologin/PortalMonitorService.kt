@@ -34,7 +34,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlin.math.roundToInt
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 
@@ -215,11 +214,13 @@ class PortalMonitorService : Service() {
             return
         }
 
-        val ssidMatched = ssid != null && ssidMatchesRules(ssid, settings.ssidRules)
+        // 命中关键词规则，或被用户手动"记住此WiFi为校园网"，都视为校园网（自动检测不跳过）
+        val memoryCampus = ssid?.let { SsidMemoryStore.get(this, it) } == true
+        val ssidMatched = ssid != null && (ssidMatchesRules(ssid, settings.ssidRules) || memoryCampus)
         if (!manual) {
             if (ssid != null && !ssidMatched) {
                 AppLog.verbose("SSID 不匹配，跳过")
-                AppStatus.update(this, AppStatus.WIFI_NO_MATCH, "当前 WiFi：$ssid（不是校园网，不处理）", ssid)
+                AppStatus.update(this, AppStatus.WIFI_NO_MATCH, "当前 WiFi：$ssid（未命中关键词规则，不自动处理）", ssid)
                 return
             }
             if (ssid == null && !settings.fallbackWhenSsidUnknown) {
@@ -278,16 +279,17 @@ class PortalMonitorService : Service() {
         val portalHost = Uri.parse(settings.portalHost).host ?: "1.1.1.1"
         val redirectHost = Uri.parse(portalUrl).host ?: ""
 
-        // 未配置关键词规则时：不做自动登录（避免把账号发往未知认证页）
-        if (settings.ssidRules.isEmpty()) {
+        // 判断是否校园网认证页，三级：记忆 → SSID 规则 → 页面关键词学习（结果按 SSID 记住）
+        val memory = ssid?.let { SsidMemoryStore.get(this, it) }
+
+        // 未配置关键词规则时：不做自动登录（避免把账号发往未知认证页）；
+        // 用户手动"记住此WiFi为校园网"的除外——手动记忆本身就是对这张网的明确指认
+        if (settings.ssidRules.isEmpty() && memory != true) {
             AppLog.info("检查跳过：未配置 SSID 关键词规则")
-            AppStatus.update(this, AppStatus.UNKNOWN, "未配置 WiFi 关键词规则，无法自动登录（设置 → 检测 中添加）", ssid)
+            AppStatus.update(this, AppStatus.UNKNOWN, "未配置 WiFi 关键词规则，无法自动登录（设置 → 检测 中添加；或在主页状态卡点「这是校园网，记住它」）", ssid)
             updateMonitorNotification()
             return
         }
-
-        // 判断是否校园网认证页，三级：记忆 → SSID 规则 → 页面关键词学习（结果按 SSID 记住）
-        val memory = ssid?.let { SsidMemoryStore.get(this, it) }
         val campus: Boolean = when {
             memory != null -> {
                 AppLog.info("SSID 记忆：$ssid → 校园网=$memory")
