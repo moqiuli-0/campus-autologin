@@ -42,12 +42,16 @@
 | 项目 | 值 |
 |---|---|
 | 包名 | `com.campusnet.autologin` |
-| 当前版本 | 1.18（versionCode 18） |
-| 安装包 SHA-256 | 77faa323c61b0f230d9110c5299f0c608d7030a2fddbe25be96308b0fda8e6d0 |
+| 当前版本 | 2.0（versionCode 23） |
+| 安装包 SHA-256 | `728ec32e38aaf03cdc027ce273372ce395c86d698d63d8f2a181b910a6930729` |
 | 签名证书 SHA-256 | `C6:8D:64:3B:2B:D6:24:0D:C5:EB:59:B9:03:06:51:EE:4D:67:D5:AD:69:38:1E:7B:03:69:03:B0:8A:A7:C9:DF` |
 
 校验方法（Windows 自带工具）：`certutil -hashfile 下载的文件.apk SHA256`，输出与上表一致即为原包。
 （安装包 SHA-256 每个版本都会变，以对应 Release 页面公布的为准；签名证书指纹长期不变。）
+
+## 致谢
+
+- [Lucide](https://lucide.dev/) —— 应用内图标来源（ISC License）
 
 ## 构建
 

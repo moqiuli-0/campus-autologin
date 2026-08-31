@@ -53,6 +53,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -68,6 +69,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -80,6 +82,7 @@ import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -389,15 +392,30 @@ fun AppRoot() {
 private fun HomeActionButtons(onCheck: () -> Unit, onSettings: () -> Unit, onAway: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Button(onClick = onCheck, modifier = Modifier.fillMaxWidth()) {
+            Icon(painterResource(R.drawable.ic_play), contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
             Text("立即检测并登录")
         }
         OutlinedButton(onClick = onSettings, modifier = Modifier.fillMaxWidth()) {
+            Icon(painterResource(R.drawable.ic_settings), contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
             Text("设置")
         }
         OutlinedButton(onClick = onAway, modifier = Modifier.fillMaxWidth()) {
+            Icon(painterResource(R.drawable.ic_power_off), contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
             Text("离校模式")
         }
     }
+}
+
+/** 状态卡图标：待命/非校园=globe-off，已联网=wifi，需配置=wifi-cog，检测中=play，登录中=link。 */
+private fun statusIconRes(state: String): Int = when (state) {
+    AppStatus.ONLINE, AppStatus.SUCCESS -> R.drawable.ic_wifi
+    AppStatus.CHECKING -> R.drawable.ic_play
+    AppStatus.PORTAL, AppStatus.LOGGING_IN -> R.drawable.ic_link
+    AppStatus.NO_CRED, AppStatus.UNKNOWN -> R.drawable.ic_wifi_cog
+    else -> R.drawable.ic_globe_off
 }
 
 @Composable
@@ -453,6 +471,7 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
         } else {
             toast(context, "已保存")
         }
+        credExpanded = false
         refreshSettings()
     }
 
@@ -479,7 +498,7 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
             // 标题 + 监控开关
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "校园网自动登录",
+                    "自动登录 v" + BuildConfig.VERSION_NAME,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f)
@@ -503,6 +522,12 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
                             .fillMaxWidth()
                             .clickable { credExpanded = !credExpanded }
                     ) {
+                        Icon(
+                            painterResource(R.drawable.ic_circle_user),
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
                         Text("登录账号", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         Text(
                             if (settings.configured) "已配置" else "未配置",
@@ -510,7 +535,14 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
                             color = if (settings.configured) Color(0xFF2E7D32) else Color(0xFFC62828)
                         )
                         Spacer(Modifier.width(6.dp))
-                        Text(if (credExpanded) "▾" else "▸", fontWeight = FontWeight.Bold)
+                        Icon(
+                            painterResource(
+                                if (credExpanded) R.drawable.ic_square_chevron_up
+                                else R.drawable.ic_square_chevron_down
+                            ),
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
                     }
                     if (credExpanded) {
                         Spacer(Modifier.height(10.dp))
@@ -555,10 +587,11 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     val (label, color) = stateInfo(status.state)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Spacer(
-                            Modifier
-                                .size(10.dp)
-                                .background(color, CircleShape)
+                        Icon(
+                            painterResource(statusIconRes(status.state)),
+                            contentDescription = null,
+                            tint = color,
+                            modifier = Modifier.size(20.dp)
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(label, fontWeight = FontWeight.Bold)
@@ -585,6 +618,12 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
                         onClick = onOpenHistory,
                         contentPadding = PaddingValues(0.dp)
                     ) {
+                        Icon(
+                            painterResource(R.drawable.ic_list_clock),
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
                         Text("查看登录历史 →")
                     }
                     // 非校园网认证页：提供手动打开按钮（B 方案，不发送任何账号信息）
@@ -655,14 +694,14 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
                 title = { Text("进入离校模式？") },
                 text = {
                     Text(
-                        "将立即停止后台监控服务、禁用开机自启并关闭本应用；\n下次打开本应用时自动恢复监控。"
+                        "将立即：\n· 停止后台监控服务\n· 禁用开机自启\n· 关闭本应用\n\n下次打开本应用时会自动退出离校模式并恢复监控。"
                     )
                 },
                 confirmButton = {
                     TextButton(onClick = {
                         showAway = false
                         (context as? Activity)?.let { enterLeftCampusMode(it) }
-                    }) { Text("确认") }
+                    }) { Text("确认进入") }
                 },
                 dismissButton = {
                     TextButton(onClick = { showAway = false }) { Text("取消") }
@@ -688,13 +727,20 @@ private fun CategoryLabel(text: String) {
 private enum class SettingsSub { Detection, RunEnv, Theme, Away, About }
 
 @Composable
-private fun SettingsEntry(title: String, desc: String, onClick: () -> Unit) {
+private fun SettingsEntry(icon: Int, title: String, desc: String, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
     ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                painterResource(icon),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(26.dp)
+            )
+            Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text(title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
                 Text(
@@ -782,19 +828,23 @@ private fun SettingsPage(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(
-                onClick = { if (sub == null) onBack() else sub = null },
-                contentPadding = PaddingValues(0.dp)
-            ) { Text("← 返回") }
+            val (titleIcon, titleText) = when (sub) {
+                null -> R.drawable.ic_settings to "设置"
+                SettingsSub.Detection -> R.drawable.ic_link to "检测"
+                SettingsSub.RunEnv -> R.drawable.ic_wifi_cog to "运行环境"
+                SettingsSub.Theme -> R.drawable.ic_palette to "主题外观"
+                SettingsSub.Away -> R.drawable.ic_power_off to "离校模式"
+                SettingsSub.About -> R.drawable.ic_list_clock to "日志与关于"
+            }
+            Icon(
+                painterResource(titleIcon),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp)
+            )
+            Spacer(Modifier.width(10.dp))
             Text(
-                when (sub) {
-                    null -> "设置"
-                    SettingsSub.Detection -> "检测"
-                    SettingsSub.RunEnv -> "运行环境"
-                    SettingsSub.Theme -> "主题外观"
-                    SettingsSub.Away -> "离校模式"
-                    SettingsSub.About -> "日志与关于"
-                },
+                titleText,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
@@ -802,11 +852,11 @@ private fun SettingsPage(
         }
 
         if (sub == null) {
-            SettingsEntry("检测", "检测间隔、SSID 关键词规则、位置校验、电脑版登录") { sub = SettingsSub.Detection }
-            SettingsEntry("运行环境", "权限与后台保活、系统认证跳转") { sub = SettingsSub.RunEnv }
-            SettingsEntry("主题外观", "主题颜色自定义") { sub = SettingsSub.Theme }
-            SettingsEntry("离校模式", "离开学校时一键停止后台监控与开机自启") { sub = SettingsSub.Away }
-            SettingsEntry("日志与关于", "日志导出、隐私声明、联系作者") { sub = SettingsSub.About }
+            SettingsEntry(R.drawable.ic_link, "检测", "检测间隔、SSID 关键词规则、位置校验、电脑版登录") { sub = SettingsSub.Detection }
+            SettingsEntry(R.drawable.ic_wifi_cog, "运行环境", "权限与后台保活、系统认证跳转") { sub = SettingsSub.RunEnv }
+            SettingsEntry(R.drawable.ic_palette, "主题外观", "主题颜色自定义") { sub = SettingsSub.Theme }
+            SettingsEntry(R.drawable.ic_power_off, "离校模式", "离开学校时一键停止后台监控与开机自启") { sub = SettingsSub.Away }
+            SettingsEntry(R.drawable.ic_list_clock, "日志与关于", "日志导出、隐私声明、联系作者") { sub = SettingsSub.About }
         }
 
         if (sub == SettingsSub.Detection)
@@ -816,10 +866,22 @@ private fun SettingsPage(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    Icon(
+                        painterResource(R.drawable.ic_clock_fading),
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
                     OutlinedTextField(
                         value = intervalText,
                         onValueChange = { s -> intervalText = s.filter { ch -> ch.isDigit() }.take(4) },
                         label = { Text("检测间隔（秒）") },
+                        leadingIcon = {
+                            Icon(
+                                painterResource(R.drawable.ic_text_cursor_input),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
                         singleLine = true,
                         modifier = Modifier.width(150.dp)
                     )
@@ -831,6 +893,14 @@ private fun SettingsPage(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painterResource(
+                            if (fallback) R.drawable.ic_lock else R.drawable.ic_lock_open
+                        ),
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
                     Text(
                         "无法读取 WiFi 名称时，遇认证页仍自动登录",
                         modifier = Modifier.weight(1f),
@@ -853,7 +923,13 @@ private fun SettingsPage(
                 } else {
                     settings.ssidRules.forEach { rule ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("· $rule", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            Text(
+                        "· $rule",
+                        modifier = Modifier
+                            .padding(start = 16.dp)
+                            .weight(1f),
+                        style = MaterialTheme.typography.bodySmall
+                    )
                             TextButton(onClick = {
                                 SettingsStore.setSsidRules(context, settings.ssidRules - rule)
                                 refreshSettings()
@@ -870,6 +946,13 @@ private fun SettingsPage(
                         value = newRule,
                         onValueChange = { s -> newRule = s.trim().take(32) },
                         label = { Text("添加 WiFi 名称关键词") },
+                        leadingIcon = {
+                            Icon(
+                                painterResource(R.drawable.ic_text_cursor_input),
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
@@ -886,6 +969,12 @@ private fun SettingsPage(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painterResource(R.drawable.ic_map_pin_house),
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
                     Text(
                         "定位校验（默认关闭，登录前核对是否在校）",
                         modifier = Modifier.weight(1f),
@@ -919,7 +1008,15 @@ private fun SettingsPage(
                                     SettingsStore.clearCampusLocation(context)
                                     refreshSettings()
                                     toast(context, "已清除校园位置")
-                                }) { Text("清除") }
+                                }) {
+                                    Icon(
+                                        painterResource(R.drawable.ic_brush_cleaning),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("清除")
+                                }
                             }
                         }
                         else -> {
@@ -949,6 +1046,15 @@ private fun SettingsPage(
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painterResource(
+                            if (settings.desktopUA) R.drawable.ic_monitor_smartphone
+                            else R.drawable.ic_smartphone
+                        ),
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
                     Text(
                         "以电脑版页面登录（双设备技巧）",
                         modifier = Modifier.weight(1f),
@@ -981,7 +1087,15 @@ private fun SettingsPage(
                         SsidMemoryStore.clear(context)
                         memCount = 0
                         toast(context, "已清除 WiFi 记忆")
-                    }) { Text("清除记忆") }
+                    }) {
+                        Icon(
+                            painterResource(R.drawable.ic_brush_cleaning),
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text("清除记忆")
+                    }
                 }
             }
         }
@@ -1008,6 +1122,12 @@ private fun SettingsPage(
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painterResource(R.drawable.ic_bug),
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
                     Text(
                         "详细日志（排障时开启）",
                         modifier = Modifier.weight(1f),
@@ -1036,6 +1156,12 @@ private fun SettingsPage(
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(12.dp)) {
                 TextButton(onClick = onShowPrivacy, contentPadding = PaddingValues(0.dp)) {
+                    Icon(
+                        painterResource(R.drawable.ic_shield_check),
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(6.dp))
                     Text("查看隐私声明")
                 }
             }
@@ -1114,7 +1240,7 @@ private fun OnboardingPager(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val pagerState = rememberPagerState(pageCount = { 3 })
+    val pagerState = rememberPagerState(pageCount = { 5 })
 
     Column(Modifier.fillMaxSize()) {
         HorizontalPager(
@@ -1126,6 +1252,8 @@ private fun OnboardingPager(
                 1 -> OnboardingPermissions(
                     locGranted, notifGranted, locationOn, onRequestLocation, onRequestNotif
                 )
+                2 -> OnboardingAutoStart()
+                3 -> OnboardingAccount()
                 else -> OnboardingPrivacy()
             }
         }
@@ -1134,7 +1262,7 @@ private fun OnboardingPager(
             modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
             horizontalArrangement = Arrangement.Center
         ) {
-            repeat(3) { i ->
+            repeat(5) { i ->
                 Box(
                     Modifier
                         .padding(horizontal = 5.dp)
@@ -1150,7 +1278,7 @@ private fun OnboardingPager(
 
         Button(
             onClick = {
-                if (pagerState.currentPage < 2) {
+                if (pagerState.currentPage < 4) {
                     scope.launch { pagerState.animateScrollToPage(pagerState.currentPage + 1) }
                 } else {
                     onFinish()
@@ -1158,7 +1286,7 @@ private fun OnboardingPager(
             },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
         ) {
-            Text(if (pagerState.currentPage == 2) "开始使用" else "下一步")
+            Text(if (pagerState.currentPage == 4) "开始使用" else "下一步")
         }
         TextButton(
             onClick = onFinish,
@@ -1248,6 +1376,108 @@ private fun OnboardingPermissions(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun OnboardingAutoStart() {
+    val context = LocalContext.current
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("开启自启动权限", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "手机厂商为了省电，常会清除后台应用，导致掉线后无法自动重新登录。把本应用加入「自启动 / 关联启动」白名单，后台监控才最稳定。",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(16.dp))
+        OutlinedButton(
+            onClick = {
+                if (!openAutoStartSettings(context)) {
+                    toast(context, "未找到自启动管理页，请在系统设置里搜索「自启动」")
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("去开启自启动 / 关联启动") }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "常见位置：vivo 在 i管家 的 启动管理 里（两个开关并排）；小米在 应用信息 → 自启动；华为在 启动管理。设置好后点「下一步」继续。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun OnboardingAccount() {
+    val context = LocalContext.current
+    var userId by remember { mutableStateOf("") }
+    var passwd by remember { mutableStateOf("") }
+    var saved by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("填写校园网账号", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "只需填写一次，账号密码加密保存在本机，不会上传。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(14.dp))
+        OutlinedTextField(
+            value = userId,
+            onValueChange = { userId = it },
+            label = { Text("账号（学号/工号）") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = passwd,
+            onValueChange = { passwd = it },
+            label = { Text("密码") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(12.dp))
+        Button(
+            onClick = {
+                if (userId.isBlank() || passwd.isBlank()) {
+                    toast(context, "账号和密码不能为空")
+                    return@Button
+                }
+                val st = SettingsStore.load(context)
+                SettingsStore.saveCredentials(context, userId, passwd)
+                SettingsStore.saveOptions(context, st.portalHost, st.fallbackWhenSsidUnknown)
+                if (!st.monitoring) {
+                    SettingsStore.setMonitoring(context, true)
+                    PortalMonitorService.start(context)
+                }
+                saved = true
+                toast(context, "已保存，后台监控已自动开启")
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("保存并开启后台监控") }
+        if (saved) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "✓ 已保存。最后记得在 设置 → 检测 里添加你的校园网 WiFi 名称关键词。",
+                color = Color(0xFF2E7D32),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "暂时不方便填也没关系，之后可在主页的「登录账号」卡片里填写。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -1383,11 +1613,27 @@ private fun HistoryPage(onBack: () -> Unit) {
 @Composable
 private fun ThemeCard(themeColor: Color, onThemeChange: (Color) -> Unit) {
     val context = LocalContext.current
-    var expanded by remember { mutableStateOf(false) }
+    var custom by remember { mutableStateOf(themeColor) }
+    var hexText by remember { mutableStateOf(toHex6(themeColor)) }
+
+    // 点预设色板时，自定义颜色参数同步跟随
+    LaunchedEffect(themeColor) {
+        custom = themeColor
+        hexText = toHex6(themeColor)
+    }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("主题颜色", fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painterResource(R.drawable.ic_palette),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("主题颜色", fontWeight = FontWeight.Bold)
+            }
 
             // 预设色板
             Row(
@@ -1420,18 +1666,7 @@ private fun ThemeCard(themeColor: Color, onThemeChange: (Color) -> Unit) {
                 }
             }
 
-            TextButton(
-                onClick = { expanded = !expanded },
-                contentPadding = PaddingValues(0.dp)
-            ) {
-                Text(if (expanded) "收起自定义" else "自定义颜色（RGB / HEX）")
-            }
-
-            if (expanded) {
-                var custom by remember { mutableStateOf(themeColor) }
-                var hexText by remember { mutableStateOf(toHex6(themeColor)) }
-
-                Row(
+            Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -1478,7 +1713,6 @@ private fun ThemeCard(themeColor: Color, onThemeChange: (Color) -> Unit) {
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("使用此颜色") }
-            }
         }
     }
 }
@@ -1511,11 +1745,19 @@ private fun ContactCard() {
                 Button(onClick = { sendFeedbackEmail(context) }) { Text("邮件联系作者") }
                 OutlinedButton(onClick = { copyText(context, "邮箱地址", CONTACT_EMAIL) }) { Text("复制邮箱") }
             }
-            Text(
-                CONTACT_EMAIL,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    painterResource(R.drawable.ic_mail),
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    CONTACT_EMAIL,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
             TextButton(
                 onClick = {
                     try {
@@ -1526,6 +1768,14 @@ private fun ContactCard() {
                 },
                 contentPadding = PaddingValues(0.dp)
             ) { Text("项目仓库：github.com/moqiuli-0/campus-autologin") }
+            TextButton(
+                onClick = {
+                    runCatching {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://lucide.dev/")))
+                    }
+                },
+                contentPadding = PaddingValues(0.dp)
+            ) { Text("图标来源：lucide.dev（致谢）") }
         }
     }
 }
@@ -1762,10 +2012,10 @@ private fun RunEnvCard(
                     .fillMaxWidth()
                     .clickable { countBatteryTap() }
             ) {
-                Text(
-                    if (batteryEffectiveOk) "✓" else "✗",
-                    color = if (batteryEffectiveOk) Color(0xFF2E7D32) else Color(0xFFC62828),
-                    fontWeight = FontWeight.Bold,
+                Icon(
+                    painterResource(if (batteryEffectiveOk) R.drawable.ic_check else R.drawable.ic_x),
+                    contentDescription = null,
+                    tint = if (batteryEffectiveOk) Color(0xFF2E7D32) else Color(0xFFC62828),
                     modifier = Modifier.width(24.dp)
                 )
                 Text(
@@ -1845,10 +2095,10 @@ private fun RunEnvCard(
 @Composable
 private fun CheckRow(label: String, ok: Boolean, action: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            if (ok) "✓" else "✗",
-            color = if (ok) Color(0xFF2E7D32) else Color(0xFFC62828),
-            fontWeight = FontWeight.Bold,
+        Icon(
+            painterResource(if (ok) R.drawable.ic_check else R.drawable.ic_x),
+            contentDescription = null,
+            tint = if (ok) Color(0xFF2E7D32) else Color(0xFFC62828),
             modifier = Modifier.width(24.dp)
         )
         Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)

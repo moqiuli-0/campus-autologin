@@ -18,8 +18,12 @@ android {
         applicationId = "com.campusnet.autologin"
         minSdk = 26
         targetSdk = 36
-        versionCode = 18
-        versionName = "1.18"
+        versionCode = 23
+        versionName = "2.0"
+    }
+
+    buildFeatures {
+        buildConfig = true
     }
 
     signingConfigs {
