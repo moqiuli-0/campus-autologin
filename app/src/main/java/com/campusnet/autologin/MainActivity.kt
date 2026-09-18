@@ -203,6 +203,12 @@ private fun themeScheme(base: Color): ColorScheme {
 // ============================ 联系作者 ============================
 
 private const val REPO_URL = "https://github.com/moqiuli-0/campus-autologin"
+
+/** 纯 HTTP、永不含 SSL 的引导页：任何门户都会把它 302 到本网络的登录页（探测 URL 不被劫持时的通用入口）。 */
+private const val NEVERSSL_URL = "http://neverssl.com"
+
+/** 手动退出登录入口：功能已实现但 v3.0 暂不放开（等门户"非法下线"参数问题在真机复验后随下一个大版本上线）。 */
+private const val SHOW_LOGOUT_BUTTON = false
 private const val CONTACT_EMAIL = "dachaiquan@foxmail.com"
 
 private fun copyText(context: Context, label: String, text: String) {
@@ -431,6 +437,7 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
     var monitoring by remember { mutableStateOf(settings.monitoring) }
 
     var showAway by remember { mutableStateOf(false) }
+    var showLogout by remember { mutableStateOf(false) }
     val status by AppStatus.flow.collectAsState()
 
     fun refreshSettings() {
@@ -614,6 +621,14 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    // 已联网：手动退出登录（与网页"离线"同链路 webdisconn.do）。
+                    // 功能代码保留，v3.0 暂隐藏入口，下一个大版本放开。
+                    if (SHOW_LOGOUT_BUTTON && status.state == AppStatus.ONLINE) {
+                        OutlinedButton(
+                            onClick = { showLogout = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("退出登录") }
+                    }
                     TextButton(
                         onClick = onOpenHistory,
                         contentPadding = PaddingValues(0.dp)
@@ -665,6 +680,24 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        // 商场/餐厅等需网页登录的 WiFi：即便门户不劫持探测 URL，
+                        // 浏览器打开纯 HTTP 引导页也会被 302 到它的登录页
+                        OutlinedButton(
+                            onClick = {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(NEVERSSL_URL))
+                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("打开这个网络的登录页（浏览器）") }
+                        Text(
+                            "如果这个 WiFi 连上后需要网页登录（如商场/餐厅），点上面的按钮：浏览器会跳到它的登录页，本应用不使用你的校园网账号。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -705,6 +738,28 @@ fun MainScreen(onOpenHistory: () -> Unit, onOpenSettings: () -> Unit) {
                 },
                 dismissButton = {
                     TextButton(onClick = { showAway = false }) { Text("取消") }
+                }
+            )
+        }
+
+        if (showLogout) {
+            AlertDialog(
+                onDismissRequest = { showLogout = false },
+                title = { Text("退出登录？") },
+                text = {
+                    Text(
+                        "将向认证系统发送离线请求，随即断网。\n\n" +
+                            "下线后后台监控将暂时关闭；点「立即检测并登录」或重连 WiFi 即可重新上线。"
+                    )
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showLogout = false
+                        PortalMonitorService.logoutNow(context)
+                    }) { Text("确认退出") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showLogout = false }) { Text("取消") }
                 }
             )
         }
@@ -1839,7 +1894,7 @@ private fun PortalJumpCard() {
                     } else {
                         showGrantDialog = true
                     }
-                }) { Text("后悔药：恢复系统自动跳转") }
+                }) { Text("恢复系统自动跳转") }
                 Text(
                     "反悔了随时点上面恢复；恢复后系统会重新自动弹认证页。",
                     style = MaterialTheme.typography.bodySmall,
@@ -1895,8 +1950,11 @@ private fun openAutoStartSettings(context: Context): Boolean {
             candidates += "com.coloros.safecenter/com.coloros.safecenter.permission.startup.StartupAppListActivity"
             candidates += "com.oppo.safe/com.oppo.safe.permission.startup.StartupAppListActivity"
         }
-        manufacturer.contains("huawei") || manufacturer.contains("honor") ->
+        manufacturer.contains("huawei") || manufacturer.contains("honor") -> {
             candidates += "com.huawei.systemmanager/com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"
+            // 鸿蒙 4.x 上启动管理组件被华为私有权限保护，直跳必败——退到手机管家主页（内有「应用启动管理」入口）
+            candidates += "com.huawei.systemmanager/com.huawei.systemmanager.mainscreen.MainScreenActivity"
+        }
     }
     for (spec in candidates) {
         try {
@@ -1931,6 +1989,8 @@ private fun openBrandBatterySettings(context: Context): Boolean {
         manufacturer.contains("huawei") || manufacturer.contains("honor") -> {
             // 鸿蒙 NEXT（5.0+）无法运行安卓组件，resolveActivity 会失败并走兜底
             candidates += "com.huawei.systemmanager" to "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"
+            // 鸿蒙 4.x 启动管理组件被私有权限保护，退到手机管家主页
+            candidates += "com.huawei.systemmanager" to "com.huawei.systemmanager.mainscreen.MainScreenActivity"
         }
 
         manufacturer.contains("oppo") || manufacturer.contains("oneplus") || manufacturer.contains("realme") -> {

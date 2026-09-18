@@ -48,6 +48,7 @@ class PortalMonitorService : Service() {
         const val ACTION_CHECK_NOW = "com.campusnet.autologin.CHECK_NOW"
         const val ACTION_PING = "com.campusnet.autologin.PING"
         const val ACTION_PORTAL_IGNORE = "com.campusnet.autologin.PORTAL_IGNORE"
+        const val ACTION_LOGOUT = "com.campusnet.autologin.LOGOUT"
 
         // 本进程内记住"忽略过提醒"的网络（重启后重新提醒）
         val portalRemindSuppressed = mutableSetOf<String>()
@@ -78,6 +79,12 @@ class PortalMonitorService : Service() {
             ContextCompat.startForegroundService(context, intent)
         }
 
+        /** 手动退出登录（下线）：走与网页"离线"按钮相同的 webdisconn.do 链路。 */
+        fun logoutNow(context: Context) {
+            val intent = Intent(context, PortalMonitorService::class.java).setAction(ACTION_LOGOUT)
+            ContextCompat.startForegroundService(context, intent)
+        }
+
         fun stop(context: Context) {
             context.stopService(Intent(context, PortalMonitorService::class.java))
         }
@@ -88,6 +95,11 @@ class PortalMonitorService : Service() {
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var netCallback: ConnectivityManager.NetworkCallback? = null
+
+    /** 用户手动退出登录后置 true：自动检测不再重新登录（避免"刚退出又被登回去"），
+     *  直到用户手动点「立即检测并登录」或 WiFi 发生连接/断开事件。 */
+    @Volatile
+    private var manualLogoutHold = false
     private var scheduled = false
     private var lastAutoCheckAt = 0L
     private var lastFailMessage = ""
@@ -161,6 +173,34 @@ class PortalMonitorService : Service() {
                 }
             }
             ACTION_PING -> startAsForeground()
+            ACTION_LOGOUT -> {
+                scope.launch {
+                    // 先立抑制位+拿锁：防止轮询窗口里周期检测钻空子把账号重新登回去
+                    manualLogoutHold = true
+                    AppStatus.update(
+                        this@PortalMonitorService, AppStatus.CHECKING,
+                        "正在退出登录（离线）…", null, busy = true
+                    )
+                    updateMonitorNotification()
+                    val out = checkMutex.withLock {
+                        PortalLoginManager.logout(this@PortalMonitorService)
+                    }
+                    AppLog.info("退出登录结果：success=${out.success} msg=${out.message}")
+                    if (out.success) {
+                        AppStatus.update(
+                            this@PortalMonitorService, AppStatus.IDLE,
+                            "已退出登录（下线）。点「立即检测并登录」或重连 WiFi 可重新上线", null
+                        )
+                    } else {
+                        manualLogoutHold = false
+                        AppStatus.update(
+                            this@PortalMonitorService, AppStatus.FAILED,
+                            "退出登录失败：${out.message}", null
+                        )
+                    }
+                    updateMonitorNotification()
+                }
+            }
             ACTION_PORTAL_IGNORE -> {
                 // 用户点了提醒通知上的"忽略"：取消通知，本轮连接内不再提醒
                 intent?.getStringExtra("key")?.let { portalRemindSuppressed.add(it) }
@@ -188,6 +228,8 @@ class PortalMonitorService : Service() {
 
     private suspend fun runCheck(manual: Boolean) = checkMutex.withLock {
         val settings = SettingsStore.load(this)
+        // 用户主动点「立即检测并登录」= 明确想上线：解除手动下线抑制
+        if (manual) manualLogoutHold = false
 
         // 离校模式：彻底跳过自动检测与登录（含手动"立即检测"）
         if (settings.leftCampus) {
@@ -286,7 +328,9 @@ class PortalMonitorService : Service() {
         // 用户手动"记住此WiFi为校园网"的除外——手动记忆本身就是对这张网的明确指认
         if (settings.ssidRules.isEmpty() && memory != true) {
             AppLog.info("检查跳过：未配置 SSID 关键词规则")
-            AppStatus.update(this, AppStatus.UNKNOWN, "未配置 WiFi 关键词规则，无法自动登录（设置 → 检测 中添加；或在主页状态卡点「这是校园网，记住它」）", ssid)
+            // 用 WIFI_NO_MATCH 态：状态卡会渲染「这是校园网，记住它」按钮，
+            // 与文案指引一致（v2.0 用 UNKNOWN 导致按钮不出现，死胡同）
+            AppStatus.update(this, AppStatus.WIFI_NO_MATCH, "未配置 WiFi 关键词规则，无法自动登录（设置 → 检测 中添加；或在主页状态卡点「这是校园网，记住它」）", ssid)
             updateMonitorNotification()
             return
         }
@@ -344,6 +388,17 @@ class PortalMonitorService : Service() {
             return
         }
 
+        // 记住本次校园网认证页完整 URL：手动"退出登录"要用同一串查询参数 POST webdisconn.do
+        SettingsStore.setLastPortalUrl(this, portalUrl)
+
+        // 用户刚手动退出过：自动检测不再把账号登回去（手动检测/重连 WiFi 会解除）
+        if (manualLogoutHold && !manual) {
+            AppLog.info("已手动下线，本轮自动检测跳过登录")
+            AppStatus.update(this, AppStatus.IDLE, "已退出登录（下线）。点「立即检测并登录」可重新上线", ssid)
+            updateMonitorNotification()
+            return
+        }
+
         // 校园位置围栏（默认关）：自动填表前取一次当前位置，人不在学校周边 500 米内则拒绝填写。
         // 定位失败/超时按原逻辑放行（可用性优先）；坐标仅本地比对，不上传。
         if (settings.locationGuard && settings.campusLocationSet) {
@@ -372,12 +427,12 @@ class PortalMonitorService : Service() {
         updateMonitorNotification()
 
         var outcome: PortalLoginManager.LoginOutcome? = null
-        for (attempt in 1..2) {
+        for (attempt in 1..3) {
             AppLog.info("自动登录第 $attempt 次尝试")
             outcome = PortalLoginManager.login(this, portalUrl, settings.userId, settings.passwd)
             AppLog.info("登录尝试结果：success=${outcome.success} msg=${outcome.message}")
             if (outcome.success) break
-            if (attempt == 1) delay(5000)
+            if (attempt < 3) delay(5000)
         }
         val final = outcome ?: PortalLoginManager.LoginOutcome(false, "登录流程异常中止")
         if (final.success) {
@@ -439,6 +494,8 @@ class PortalMonitorService : Service() {
                 .build()
             val callback = object : ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: Network) {
+                    // 新的 WiFi 连接事件视为用户想上线：解除手动下线抑制
+                    manualLogoutHold = false
                     scheduleCheck()
                 }
 
@@ -447,6 +504,7 @@ class PortalMonitorService : Service() {
                 }
 
                 override fun onLost(network: Network) {
+                    manualLogoutHold = false
                     AppStatus.update(this@PortalMonitorService, AppStatus.IDLE, "WiFi 已断开，待命中", null)
                 }
             }

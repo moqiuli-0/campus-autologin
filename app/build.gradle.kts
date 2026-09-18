@@ -18,8 +18,8 @@ android {
         applicationId = "com.campusnet.autologin"
         minSdk = 26
         targetSdk = 36
-        versionCode = 23
-        versionName = "2.0"
+        versionCode = 30
+        versionName = "3.0"
     }
 
     buildFeatures {

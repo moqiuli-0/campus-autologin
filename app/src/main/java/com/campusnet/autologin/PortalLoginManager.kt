@@ -25,11 +25,11 @@ object PortalLoginManager {
 
     data class LoginOutcome(val success: Boolean, val message: String)
 
-    private const val PAGE_LOAD_TIMEOUT_MS = 20_000L
-    private const val FORM_WAIT_MS = 12_000L
-    private const val LOGIN_WAIT_MS = 45_000L
+    private const val PAGE_LOAD_TIMEOUT_MS = 15_000L
+    private const val FORM_WAIT_MS = 8_000L
+    private const val LOGIN_WAIT_MS = 30_000L
     private const val EVALJS_TIMEOUT_MS = 10_000L
-    private const val LOGIN_TOTAL_TIMEOUT_MS = 150_000L
+    private const val LOGIN_TOTAL_TIMEOUT_MS = 100_000L
 
     suspend fun login(
         context: Context,
@@ -70,13 +70,15 @@ object PortalLoginManager {
                 AppLog.info("认证页加载超时")
                 return@withContext LoginOutcome(false, "认证页加载超时")
             }
+            dumpPage(wv, "加载完成")
 
             // 等待登录表单渲染出来（外链 JS 加载完成前元素不存在）
             var filled = ""
             var hasForm = false
             var waited = 0L
             while (waited <= FORM_WAIT_MS) {
-                filled = evalJs(wv, fillJs(userId, passwd))
+                // evaluateJavascript 返回 JSON 编码结果（字符串带引号），必须 jsString 解包后再比较
+                filled = jsString(evalJs(wv, fillJs(userId, passwd)))
                 AppLog.verbose("填充表单尝试：$filled（已等 ${waited}ms）")
                 if (filled == "OK") { hasForm = true; break }
                 delay(1000)
@@ -84,6 +86,7 @@ object PortalLoginManager {
             }
             if (!hasForm) {
                 AppLog.info("未找到登录表单，最后一次填充结果=$filled")
+                dumpPage(wv, "未找到登录表单")
                 // 可能已经登录过，页面被重定向到成功页：直接看联网状态
                 if (ConnectivityChecker.check() is ConnectivityChecker.Result.Online) {
                     AppLog.info("页面无表单但网络已通，视为已登录")
@@ -92,7 +95,7 @@ object PortalLoginManager {
                 return@withContext LoginOutcome(false, "认证页上未找到登录表单（页面结构变化？）")
             }
 
-            val clicked = evalJs(wv, clickJs())
+            val clicked = jsString(evalJs(wv, clickJs()))
             AppLog.info("点击登录按钮结果=$clicked")
             if (clicked != "OK") {
                 return@withContext LoginOutcome(false, "未找到登录按钮（$clicked）")
@@ -144,6 +147,84 @@ object PortalLoginManager {
         }
     }
 
+    /**
+     * 退出登录：无头 WebView 打开认证页（在线状态下门户返回"在线/离线"页），
+     * 复用页面自身的 #goLoginForm → POST /webdisconn.do?<urlParameter>（与网页"离线"按钮完全同链路），
+     * 然后轮询联网状态确认已下线。
+     */
+    suspend fun logout(context: Context): LoginOutcome = withContext(Dispatchers.Main) {
+        val app = context.applicationContext
+        // 优先用登录时记录的完整 URL；没有则打开门户主机——在线状态下门户会返回
+        // "在线/离线"页，其 urlParameter 由服务端按当前会话渲染，同样可用
+        val settings = SettingsStore.load(app)
+        val portalUrl = SettingsStore.lastPortalUrl(app).ifBlank { settings.portalHost }
+        if (portalUrl.isBlank()) {
+            return@withContext LoginOutcome(false, "没有可用的认证页地址")
+        }
+        var webView: WebView? = null
+        try {
+            val wv = createWebView(app)
+            webView = wv
+            val pageLoaded = CompletableDeferred<Unit>()
+            wv.webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView, url: String?) {
+                    if (!pageLoaded.isCompleted) pageLoaded.complete(Unit)
+                }
+            }
+            AppLog.info("退出登录：加载门户页 $portalUrl")
+            wv.loadUrl(portalUrl)
+            if (withTimeoutOrNull(PAGE_LOAD_TIMEOUT_MS) { pageLoaded.await() } == null) {
+                AppLog.info("退出登录：门户页加载超时")
+                return@withContext LoginOutcome(false, "门户页加载超时，未能退出")
+            }
+            val res = jsString(evalJs(wv, logoutJs()))
+            AppLog.info("退出登录：提交离线结果=$res")
+            if (res != "SUBMITTED") {
+                return@withContext LoginOutcome(false, "离线提交失败（$res）")
+            }
+            // 表单提交是整页跳转：稍候读取门户回页的可见文字，用于诊断"离线被拒绝"类问题
+            // （下线成功页没有 #errMessage，readPageError 读不到，取 body 文本更通用）
+            delay(2500)
+            AppLog.info("离线提交后页面：${wv.url}")
+            val bodyText = jsString(evalJs(wv, "(document.body?document.body.innerText:'').substring(0,300)"))
+                .replace(Regex("\\s+"), " ").trim()
+            if (bodyText.isNotBlank()) AppLog.info("离线响应内容：$bodyText")
+            // 等待下线生效：探测不再是 Online（预期 Portal/Offline）
+            val deadline = System.currentTimeMillis() + 20_000L
+            while (System.currentTimeMillis() < deadline) {
+                delay(2500)
+                val r = ConnectivityChecker.check()
+                if (r !is ConnectivityChecker.Result.Online) {
+                    AppLog.info("已确认下线（探测=${r::class.simpleName}）")
+                    return@withContext LoginOutcome(true, "已退出登录（下线）")
+                }
+            }
+            LoginOutcome(false, "已提交离线请求，但网络状态仍显示在线")
+        } catch (e: Exception) {
+            AppLog.info("退出登录异常：${e.message}")
+            LoginOutcome(false, "退出登录异常：${e.message ?: e.javaClass.simpleName}")
+        } finally {
+            try { webView?.stopLoading() } catch (_: Exception) {}
+            try { webView?.loadUrl("about:blank") } catch (_: Exception) {}
+            try { webView?.destroy() } catch (_: Exception) {}
+            try { CookieManager.getInstance().flush() } catch (_: Exception) {}
+        }
+    }
+
+    /** 复刻网页"离线"按钮：#goLoginForm.action = /webdisconn.do?<urlParameter> 后 submit。 */
+    private fun logoutJs(): String = """
+        (function(){
+          try{
+            var f=document.getElementById('goLoginForm');
+            var up=document.getElementById('urlParameter');
+            if(!f||!up||!up.value) return 'NO_FORM';
+            f.action='/webdisconn.do?'+up.value;
+            f.submit();
+            return 'SUBMITTED';
+          }catch(e){return 'ERR:'+e.message;}
+        })()
+    """.trimIndent()
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(context: Context): WebView = WebView(context).apply {
         settings.javaScriptEnabled = true
@@ -178,6 +259,18 @@ object PortalLoginManager {
     }
 
     private fun jsLiteral(s: String): String = JSONObject.quote(s)
+
+    /** 页面快照：把 WebView 当前渲染的 HTML（截前6000字符）写进日志，用于诊断页面结构问题。 */
+    private suspend fun dumpPage(wv: WebView, reason: String) {
+        try {
+            val raw = jsString(
+                evalJs(wv, "document.documentElement.outerHTML.substring(0, 6000)")
+            )
+            AppLog.info("页面快照[$reason] url=${wv.url} 内容=${raw.take(6000)}")
+        } catch (e: Exception) {
+            AppLog.info("页面快照[$reason] 失败：${e.message}")
+        }
+    }
 
     private fun fillJs(userId: String, passwd: String): String {
         val u = jsLiteral(userId)

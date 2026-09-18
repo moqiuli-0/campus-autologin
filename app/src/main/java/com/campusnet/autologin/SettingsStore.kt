@@ -20,7 +20,9 @@ data class AppSettings(
     val locationGuard: Boolean,
     val desktopUA: Boolean,
     val campusLat: Double?,
-    val campusLng: Double?
+    val campusLng: Double?,
+    val darkMode: Boolean,
+    val systemTheme: Boolean
 ) {
     val configured: Boolean get() = userId.isNotBlank() && passwd.isNotBlank()
     val campusLocationSet: Boolean get() = campusLat != null && campusLng != null
@@ -48,6 +50,9 @@ object SettingsStore {
     private const val K_DESKTOP_UA = "desktopUA"
     private const val K_CAMPUS_LAT = "campusLat"
     private const val K_CAMPUS_LNG = "campusLng"
+    private const val K_DARK_MODE = "darkMode"
+    private const val K_SYSTEM_THEME = "systemTheme"
+    private const val K_LAST_PORTAL = "lastPortalUrl"
 
     /** 多值字段分隔符（SSID 规则等列表存储用）。 */
     private const val SEP = "\u0001"
@@ -104,7 +109,9 @@ object SettingsStore {
             locationGuard = st.getBoolean(K_LOCATION_GUARD, false),
             desktopUA = st.getBoolean(K_DESKTOP_UA, false),
             campusLat = st.getString(K_CAMPUS_LAT, null)?.toDoubleOrNull(),
-            campusLng = st.getString(K_CAMPUS_LNG, null)?.toDoubleOrNull()
+            campusLng = st.getString(K_CAMPUS_LNG, null)?.toDoubleOrNull(),
+            darkMode = st.getBoolean(K_DARK_MODE, false),
+            systemTheme = st.getBoolean(K_SYSTEM_THEME, true)
         )
     }
 
@@ -176,6 +183,18 @@ object SettingsStore {
     fun setDesktopUA(context: Context, enabled: Boolean) {
         statePrefs(context).edit().putBoolean(K_DESKTOP_UA, enabled).apply()
     }
+
+    /** 最近一次校园网认证页完整 URL（含查询串）：退出登录要用同一串参数 POST webdisconn.do。 */
+    fun setLastPortalUrl(context: Context, url: String) {
+        statePrefs(context).edit().putString(K_LAST_PORTAL, url).apply()
+    }
+
+    fun lastPortalUrl(context: Context): String =
+        statePrefs(context).getString(K_LAST_PORTAL, null) ?: ""
+
+
+    fun setDarkMode(context: Context, enabled: Boolean) = statePrefs(context).edit().putBoolean(K_DARK_MODE, enabled).apply()
+    fun setSystemTheme(context: Context, enabled: Boolean) = statePrefs(context).edit().putBoolean(K_SYSTEM_THEME, enabled).apply()
 
     fun setCampusLocation(context: Context, lat: Double, lng: Double) {
         statePrefs(context).edit()
