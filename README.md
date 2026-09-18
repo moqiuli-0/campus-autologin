@@ -42,7 +42,7 @@
 | 项目 | 值 |
 |---|---|
 | 包名 | `com.campusnet.autologin` |
-| 当前版本 | 3.0（versionCode 30） |
+| 当前版本 | 3.0，versionCode 30 |
 | 安装包 SHA-256 | `2df002c0037766eeb6b913dcb7deafcee84faefd4822bd17380ed75c78117709` |
 | 签名证书 SHA-256 | `C6:8D:64:3B:2B:D6:24:0D:C5:EB:59:B9:03:06:51:EE:4D:67:D5:AD:69:38:1E:7B:03:69:03:B0:8A:A7:C9:DF` |
 
